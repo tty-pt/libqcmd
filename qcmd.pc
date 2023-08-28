@@ -1,0 +1,10 @@
+prefix=/usr/local
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: cmdlib
+Description: Run commands in threads, etc
+Version: 1.0.0
+Libs: -L${libdir} -lqcmd
+Cflags: -I${includedir}/cmdlib -pthread
