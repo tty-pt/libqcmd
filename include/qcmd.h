@@ -24,8 +24,8 @@ struct tcmd_ret {
 };
 
 int popen2(struct popen2 *child, const char *cmdline);
-char *command(char *prompt, cmd_cb_t callback, char *arg);
-char *commandf(const char *format, cmd_cb_t callback, char *arg, ...);
+ssize_t command(char *prompt, cmd_cb_t callback, char *arg);
+ssize_t commandf(const char *format, cmd_cb_t callback, char *arg, ...);
 struct tcmd_ret tcommand(char *buf, cmd_cb_t callback, char *arg, cmd_fin_t fin, unsigned millis);
 struct tcmd_ret tcommandf(char *format, cmd_cb_t callback, char *arg, cmd_fin_t fin, unsigned millis, ...);
 struct tcmd_ret etcommand(char *buf, cmd_cb_t callback, char *arg);

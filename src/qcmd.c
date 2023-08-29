@@ -49,11 +49,11 @@ popen2(struct popen2 *child, const char *cmdline)
 	return 0;
 }
 
-char *
+ssize_t
 command(char *prompt, cmd_cb_t callback, char *arg) {
 	static char buf[BUFSIZ];
 	struct popen2 child;
-	ssize_t len = 0;
+	ssize_t len = 0, total = 0;
 	int start = 1, cont = 0;
 
 	/* fprintf(stderr, "# %s\n", prompt); */
@@ -79,7 +79,7 @@ command(char *prompt, cmd_cb_t callback, char *arg) {
 
 		if (ready_fds == -1) {
 			perror("Error in select");
-			exit(1);
+			return -1;
 		}
 
 		if (!FD_ISSET(child.out, &read_fds))
@@ -90,6 +90,7 @@ command(char *prompt, cmd_cb_t callback, char *arg) {
 		if (len > 0) {
 			buf[len] = '\0';
 			callback(buf, len, &child, arg);
+			total += len;
 		} else if (len == 0) {
 			callback("", 0, &child, arg);
 			break;
@@ -98,18 +99,18 @@ command(char *prompt, cmd_cb_t callback, char *arg) {
 				continue;
 			default:
 				perror("Error in read");
-				exit(1);
+				return -1;
 		}
 	} while (1);
 
 	close(child.in);
 	close(child.out);
 	kill(child.pid, 0);
-	return buf;
+	return total;
 }
 
 
-char *
+ssize_t
 commandf(const char *format, cmd_cb_t callback, char *arg, ...) {
 	static char buf[BUFSIZ * 4];
 	va_list args;
@@ -119,13 +120,14 @@ commandf(const char *format, cmd_cb_t callback, char *arg, ...) {
 	return command(buf, callback, arg);
 }
 
-
 void *command_thread(void *args) {
 	struct cmd_args *cmd_args = (struct cmd_args *) args;
-	char *ret = command(cmd_args->prompt, cmd_args->callback, cmd_args->arg);
+	if (command(cmd_args->prompt, cmd_args->callback, cmd_args->arg) < 0)
+		return (void *) 0x1;
 	pthread_exit(NULL);
+	free(cmd_args->arg);
 	free(cmd_args);
-	return ret;
+	return NULL;
 }
 
 void default_callback2(char *buf, ssize_t len, struct popen2 *child, char *arg) {
