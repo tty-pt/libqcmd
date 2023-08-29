@@ -1,5 +1,5 @@
-#ifndef CMD_H
-#define CMD_H
+#ifndef QCMD_H
+#define QCMD_H
 
 #include <sys/types.h>
 #include <signal.h>
@@ -28,5 +28,7 @@ char *command(char *prompt, cmd_cb_t callback, char *arg);
 char *commandf(const char *format, cmd_cb_t callback, char *arg, ...);
 struct tcmd_ret tcommand(char *buf, cmd_cb_t callback, char *arg, cmd_fin_t fin, unsigned millis);
 struct tcmd_ret tcommandf(char *format, cmd_cb_t callback, char *arg, cmd_fin_t fin, unsigned millis, ...);
+struct tcmd_ret etcommand(char *buf, cmd_cb_t callback, char *arg);
+struct tcmd_ret etcommandf(char *format, cmd_cb_t callback, char *arg, ...);
 
 #endif

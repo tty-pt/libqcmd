@@ -3,8 +3,8 @@ exec_prefix=${prefix}
 libdir=${exec_prefix}/lib
 includedir=${prefix}/include
 
-Name: cmdlib
+Name: qcmdlib
 Description: Run commands in threads, etc
 Version: 1.0.0
 Libs: -L${libdir} -lqcmd
-Cflags: -I${includedir}/cmdlib -pthread
+Cflags: -I${includedir}/qcmdlib -pthread

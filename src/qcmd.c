@@ -157,7 +157,6 @@ void check_callback(union sigval sv) {
 	}
 	pthread_mutex_unlock(&def_arg->mutex);
 
-	fprintf(stderr, "DELETING TIMER");
 	timer_delete(def_arg->timer);
 	def_arg->fin(sv);
 }
@@ -233,4 +232,23 @@ struct tcmd_ret tcommandf(char *format, cmd_cb_t callback, char *arg, cmd_fin_t 
 	vsprintf(cmd_args->prompt, format, args);
 	va_end(args);
 	return _tcommand(cmd_args, callback, arg, fin, millis);
+}
+
+void easy_fin(union sigval sv) {}
+
+#define DEFAULT_INTERVAL 333
+
+struct tcmd_ret etcommand(char *buf, cmd_cb_t callback, char *arg) {
+	struct cmd_args *cmd_args = malloc(sizeof(struct cmd_args));
+	strcpy(cmd_args->prompt, buf);
+	return _tcommand(cmd_args, callback, arg, easy_fin, DEFAULT_INTERVAL);
+}
+
+struct tcmd_ret etcommandf(char *format, cmd_cb_t callback, char *arg, ...) {
+	struct cmd_args *cmd_args = malloc(sizeof(struct cmd_args));
+	va_list args;
+	va_start(args, arg);
+	vsprintf(cmd_args->prompt, format, args);
+	va_end(args);
+	return _tcommand(cmd_args, callback, arg, easy_fin, DEFAULT_INTERVAL);
 }
