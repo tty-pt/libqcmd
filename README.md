@@ -9,7 +9,7 @@ make
 
 ## installing
 ```sh
-make install
+sudo make install
 ```
 
 ## uninstalling

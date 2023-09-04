@@ -9,16 +9,6 @@
 #include <string.h>
 #include <unistd.h>
 
-struct tcmd_args {
-	pid_t pid;
-	pthread_mutex_t mutex;
-	cmd_cb_t cb;
-	cmd_fin_t fin;
-	char *arg;
-	void *ca;
-	timer_t timer;
-};
-
 int
 popen2(struct popen2 *child, const char *cmdline)
 {
@@ -227,16 +217,25 @@ struct tcmd_ret tcommand(char *buf, cmd_cb_t callback, char *arg, cmd_fin_t fin,
 	return _tcommand(cmd_args, callback, arg, fin, millis);
 }
 
-struct tcmd_ret tcommandf(char *format, cmd_cb_t callback, char *arg, cmd_fin_t fin, unsigned millis, ...) {
+struct tcmd_ret tvcommandf(char *format, cmd_cb_t callback, char *arg, cmd_fin_t fin, unsigned millis, va_list va) {
 	struct cmd_args *cmd_args = malloc(sizeof(struct cmd_args));
-	va_list args;
-	va_start(args, millis);
-	vsprintf(cmd_args->prompt, format, args);
-	va_end(args);
+	vsprintf(cmd_args->prompt, format, va);
 	return _tcommand(cmd_args, callback, arg, fin, millis);
 }
 
-void easy_fin(union sigval sv) {}
+struct tcmd_ret tcommandf(char *format, cmd_cb_t callback, char *arg, cmd_fin_t fin, unsigned millis, ...) {
+	struct tcmd_ret ret;
+	va_list args;
+	va_start(args, millis);
+	ret = tvcommandf(format, callback, arg, fin, millis, args);
+	va_end(args);
+	return ret;
+}
+
+void easy_fin(union sigval sv) {
+	struct tcmd_args *def_arg = (struct tcmd_args *) sv.sival_ptr;
+	def_arg->cb("", -1, NULL, def_arg->arg);
+}
 
 #define DEFAULT_INTERVAL 333
 
@@ -247,10 +246,10 @@ struct tcmd_ret etcommand(char *buf, cmd_cb_t callback, char *arg) {
 }
 
 struct tcmd_ret etcommandf(char *format, cmd_cb_t callback, char *arg, ...) {
-	struct cmd_args *cmd_args = malloc(sizeof(struct cmd_args));
+	struct tcmd_ret ret;
 	va_list args;
 	va_start(args, arg);
-	vsprintf(cmd_args->prompt, format, args);
+	ret = tvcommandf(format, callback, arg, easy_fin, DEFAULT_INTERVAL, args);
 	va_end(args);
-	return _tcommand(cmd_args, callback, arg, easy_fin, DEFAULT_INTERVAL);
+	return ret;
 }
