@@ -9,7 +9,7 @@ lib/libqcmd.so: src/qcmd.o
 	gcc -shared -o $@ $<
 
 src/qcmd.o: src/qcmd.c include/qcmd.h
-	gcc -c -fPIC src/qcmd.c -o $@ -Iinclude
+	gcc -c -fPIC src/qcmd.c -o $@ -Iinclude -I/usr/include
 
 
 install: all

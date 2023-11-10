@@ -1,3 +1,6 @@
+#define _XOPEN_SOURCE 600
+#define _DEFAULT_SOURCE
+
 #include "qcmd.h"
 #include <ctype.h>
 #include <errno.h>
@@ -6,11 +9,15 @@
 #include <signal.h>
 #include <stdarg.h>
 #include <stdlib.h>
+/* #include <unistd.h> */
 #include <string.h>
 #include <unistd.h>
+#include <sys/select.h>
+#include <pty.h>
+#include <termios.h>
 
 int
-popen2(struct popen2 *child, const char *cmdline)
+popen2(struct popen *child, const char *cmdline)
 {
 	pid_t p;
 	int pipe_stdin[2], pipe_stdout[2];
@@ -39,10 +46,83 @@ popen2(struct popen2 *child, const char *cmdline)
 	return 0;
 }
 
+struct {
+	struct termios tty;
+	int slave_fd;
+} clients[FD_SETSIZE];
+
+void cleanup_handler(int sig) {
+	for (int i = 0; i < FD_SETSIZE; ++i) if (clients[i].slave_fd != -1) {
+		tcsetattr(i, TCSANOW, &clients[i].tty);
+		close(i);
+		clients[i].slave_fd = -1;
+	}
+}
+
+int
+command_pty(int master_fd, struct winsize *ws, struct popen *child, char * const args[])
+{
+	pid_t p;
+
+	p = fork();
+	if(p == 0) { /* child */
+		setsid();
+
+		int slave_fd = open(ptsname(master_fd), O_RDWR);
+		if (slave_fd == -1) {
+			perror("open slave pty");
+			exit(EXIT_FAILURE);
+		}
+
+		ioctl(slave_fd, TIOCSWINSZ, ws);
+
+		if (ioctl(slave_fd, TIOCSCTTY, NULL) == -1)
+			perror("ioctl TIOCSCTTY");
+
+		int flags;
+		flags = fcntl(slave_fd, F_GETFL, 0);
+		fcntl(slave_fd, F_SETFL, flags | O_NONBLOCK);
+
+		struct termios tty;
+		tcgetattr(slave_fd, &tty); // Get current terminal attributes
+		tcgetattr(slave_fd, &clients[slave_fd].tty); // Get current terminal attributes
+		clients[slave_fd].tty = tty;
+		clients[slave_fd].slave_fd = slave_fd;
+
+		cfmakeraw(&tty); // Modify them for raw mode
+
+		/* tty.c_oflag |= (OPOST | ONLCR); */
+		/* tty.c_oflag &= ~(OPOST | ONLCR); */
+		/* tty.c_oflag |= (OPOST | ONLCR); */
+
+		tcsetattr(slave_fd, TCSANOW, &tty); // Set the attributes to make the changes take effect immediately
+
+		struct sigaction sa;
+		memset(&sa, 0, sizeof(sa));
+		sa.sa_handler = cleanup_handler;
+		sigaction(SIGTERM, &sa, NULL);
+
+		dup2(slave_fd, STDIN_FILENO);
+		dup2(slave_fd, STDOUT_FILENO);
+		dup2(slave_fd, STDERR_FILENO);
+		close(master_fd);
+
+		execvp(args[0], args);
+		perror("execvp");
+		exit(99);
+	}
+
+	child->pid = p;
+	child->in = master_fd;
+	child->out = master_fd;
+
+	return p;
+}
+
 ssize_t
-command(char *prompt, cmd_cb_t callback, char *arg) {
+command(char *prompt, cmd_cb_t callback, void *arg) {
 	static char buf[BUFSIZ];
-	struct popen2 child;
+	struct popen child;
 	ssize_t len = 0, total = 0;
 	int start = 1, cont = 0;
 
@@ -101,7 +181,7 @@ command(char *prompt, cmd_cb_t callback, char *arg) {
 
 
 ssize_t
-commandf(const char *format, cmd_cb_t callback, char *arg, ...) {
+commandf(const char *format, cmd_cb_t callback, void *arg, ...) {
 	static char buf[BUFSIZ * 4];
 	va_list args;
 	va_start(args, arg);
@@ -120,7 +200,7 @@ void *command_thread(void *args) {
 	return NULL;
 }
 
-void default_callback2(char *buf, ssize_t len, struct popen2 *child, char *arg) {
+void tcommand_callback(char *buf, ssize_t len, struct popen *child, void *arg) {
 	struct tcmd_args *def_arg = (struct tcmd_args *) arg;
 	char *s;
 
@@ -154,7 +234,7 @@ void check_callback(union sigval sv) {
 }
 
 struct tcmd_ret
-_tcommand(struct cmd_args *cmd_args, cmd_cb_t callback, char *arg, cmd_fin_t fin, unsigned millis) {
+_tcommand(struct cmd_args *cmd_args, cmd_cb_t callback, void *arg, cmd_fin_t fin, unsigned millis) {
 	struct tcmd_ret ret = { .mutex = NULL };
 	struct tcmd_args *cb_arg = malloc(sizeof(struct tcmd_args));
 	va_list args;
@@ -188,7 +268,7 @@ _tcommand(struct cmd_args *cmd_args, cmd_cb_t callback, char *arg, cmd_fin_t fin
 
 	// had vsprintf here
 
-	cmd_args->callback = default_callback2;
+	cmd_args->callback = tcommand_callback;
 	cmd_args->arg = (char *) cb_arg;
 
 	its.it_value.tv_sec = millis / 1000;
@@ -211,19 +291,19 @@ _tcommand(struct cmd_args *cmd_args, cmd_cb_t callback, char *arg, cmd_fin_t fin
 
 }
 	
-struct tcmd_ret tcommand(char *buf, cmd_cb_t callback, char *arg, cmd_fin_t fin, unsigned millis) {
+struct tcmd_ret tcommand(char *buf, cmd_cb_t callback, void *arg, cmd_fin_t fin, unsigned millis) {
 	struct cmd_args *cmd_args = malloc(sizeof(struct cmd_args));
 	strcpy(cmd_args->prompt, buf);
 	return _tcommand(cmd_args, callback, arg, fin, millis);
 }
 
-struct tcmd_ret tvcommandf(char *format, cmd_cb_t callback, char *arg, cmd_fin_t fin, unsigned millis, va_list va) {
+struct tcmd_ret tvcommandf(char *format, cmd_cb_t callback, void *arg, cmd_fin_t fin, unsigned millis, va_list va) {
 	struct cmd_args *cmd_args = malloc(sizeof(struct cmd_args));
 	vsprintf(cmd_args->prompt, format, va);
 	return _tcommand(cmd_args, callback, arg, fin, millis);
 }
 
-struct tcmd_ret tcommandf(char *format, cmd_cb_t callback, char *arg, cmd_fin_t fin, unsigned millis, ...) {
+struct tcmd_ret tcommandf(char *format, cmd_cb_t callback, void *arg, cmd_fin_t fin, unsigned millis, ...) {
 	struct tcmd_ret ret;
 	va_list args;
 	va_start(args, millis);
@@ -239,13 +319,13 @@ void easy_fin(union sigval sv) {
 
 #define DEFAULT_INTERVAL 333
 
-struct tcmd_ret etcommand(char *buf, cmd_cb_t callback, char *arg) {
+struct tcmd_ret etcommand(char *buf, cmd_cb_t callback, void *arg) {
 	struct cmd_args *cmd_args = malloc(sizeof(struct cmd_args));
 	strcpy(cmd_args->prompt, buf);
 	return _tcommand(cmd_args, callback, arg, easy_fin, DEFAULT_INTERVAL);
 }
 
-struct tcmd_ret etcommandf(char *format, cmd_cb_t callback, char *arg, ...) {
+struct tcmd_ret etcommandf(char *format, cmd_cb_t callback, void *arg, ...) {
 	struct tcmd_ret ret;
 	va_list args;
 	va_start(args, arg);
